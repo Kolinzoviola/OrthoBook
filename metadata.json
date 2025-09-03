@@ -1,0 +1,8 @@
+{
+  "name": "Collins OrthoCare",
+  "description": "A web application for patients of Collins OrthoCare to find information, book consultations, and attend telemedicine appointments.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
