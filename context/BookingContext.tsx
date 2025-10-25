@@ -1,7 +1,7 @@
 import React, { createContext, useState, useContext, ReactNode } from 'react';
-import { add } from 'date-fns';
 import { Appointment, BookingContextType, IntakeDetails, PatientDetails, VisitType, AppointmentStatus } from '../types';
-import { MOCK_APPOINTMENTS } from '../constants';
+import { appointmentsAPI } from '../api/client';
+import { apiAppointmentToAppointment, appointmentToAPIFormat } from '../api/adapters';
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
 
@@ -23,53 +23,55 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
   const [files, setFiles] = useState<File[]>([]);
   const [bookedAppointment, setBookedAppointment] = useState<Appointment | null>(null);
 
-  const createAppointment = () => {
+  const createAppointment = async () => {
     if (!selectedVisitType || !selectedSlot) return;
 
-    const newAppointment: Appointment = {
-      id: `appt-${Math.random().toString(36).substr(2, 9)}`,
-      patient: patientDetails,
-      visitType: selectedVisitType,
-      startTime: selectedSlot,
-      endTime: add(selectedSlot, { minutes: selectedVisitType.duration }),
-      status: AppointmentStatus.Scheduled,
-      intake: intakeDetails,
-      files,
-    };
-    
-    // In a real app, this would be an API call.
-    // Here we just add it to our mock data array.
-    MOCK_APPOINTMENTS.push(newAppointment);
-    setBookedAppointment(newAppointment);
-
-    // Simulate scheduling reminders by saving to localStorage
     try {
+      const appointmentData = appointmentToAPIFormat(
+        selectedVisitType,
+        selectedSlot,
+        patientDetails,
+        intakeDetails,
+        files
+      );
+
+      const apiAppointment = await appointmentsAPI.create(appointmentData);
+      const newAppointment = apiAppointmentToAppointment(apiAppointment as any);
+
+      setBookedAppointment(newAppointment);
+
+      // Also save to localStorage for reminder functionality
+      try {
         const existingAppointments = JSON.parse(localStorage.getItem('userAppointments') || '[]');
         localStorage.setItem('userAppointments', JSON.stringify([...existingAppointments, newAppointment]));
-    } catch (error) {
+      } catch (error) {
         console.error("Could not save appointment for reminders:", error);
+      }
+    } catch (error) {
+      console.error("Could not create appointment:", error);
+      throw error;
     }
   };
   
-  const cancelAppointment = (appointmentId: string) => {
+  const cancelAppointment = async (appointmentId: string) => {
     try {
-        const apptIndex = MOCK_APPOINTMENTS.findIndex(a => a.id === appointmentId);
-        if (apptIndex > -1) {
-            MOCK_APPOINTMENTS[apptIndex].status = AppointmentStatus.Cancelled;
-        }
+      const cancelledAppointment = await appointmentsAPI.cancel(appointmentId);
+      const updatedAppointment = apiAppointmentToAppointment(cancelledAppointment as any);
 
-        const existingAppointments: Appointment[] = JSON.parse(localStorage.getItem('userAppointments') || '[]');
-        const updatedAppointments = existingAppointments.map(appt => 
-            appt.id === appointmentId ? { ...appt, status: AppointmentStatus.Cancelled } : appt
-        );
-        localStorage.setItem('userAppointments', JSON.stringify(updatedAppointments));
+      // Update localStorage
+      const existingAppointments: Appointment[] = JSON.parse(localStorage.getItem('userAppointments') || '[]');
+      const updatedAppointments = existingAppointments.map(appt =>
+          appt.id === appointmentId ? { ...appt, status: AppointmentStatus.Cancelled } : appt
+      );
+      localStorage.setItem('userAppointments', JSON.stringify(updatedAppointments));
 
-        if (bookedAppointment && bookedAppointment.id === appointmentId) {
-            setBookedAppointment({ ...bookedAppointment, status: AppointmentStatus.Cancelled });
-        }
-        console.log(`Appointment ${appointmentId} cancelled.`);
+      if (bookedAppointment && bookedAppointment.id === appointmentId) {
+        setBookedAppointment(updatedAppointment);
+      }
+      console.log(`Appointment ${appointmentId} cancelled.`);
     } catch (error) {
-        console.error("Could not cancel appointment:", error);
+      console.error("Could not cancel appointment:", error);
+      throw error;
     }
   };
 

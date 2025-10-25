@@ -1,13 +1,37 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
-import { MOCK_APPOINTMENTS } from '../constants';
 import { Appointment, VisitTypeEnum, AppointmentStatus } from '../types';
 import { VideoCameraIcon, DownloadIcon } from '../components/icons';
+import { appointmentsAPI } from '../api/client';
+import { apiAppointmentToAppointment } from '../api/adapters';
 
 const AdminPage = () => {
+    const [appointments, setAppointments] = useState<Appointment[]>([]);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+
+    useEffect(() => {
+        const fetchAppointments = async () => {
+            try {
+                setLoading(true);
+                const apiAppointments = await appointmentsAPI.getAll();
+                const convertedAppointments = apiAppointments.map(appt => apiAppointmentToAppointment(appt as any));
+                setAppointments(convertedAppointments);
+                setError(null);
+            } catch (err) {
+                console.error('Failed to fetch appointments:', err);
+                setError('Failed to load appointments. Please try again later.');
+            } finally {
+                setLoading(false);
+            }
+        };
+
+        fetchAppointments();
+    }, []);
+
     // Sort appointments by start time
-    const sortedAppointments = [...MOCK_APPOINTMENTS].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
+    const sortedAppointments = [...appointments].sort((a, b) => a.startTime.getTime() - b.startTime.getTime());
 
     const triggerDownload = (filename: string, content: string, mimeType: string) => {
         const blob = new Blob([content], { type: mimeType });
@@ -117,6 +141,33 @@ const AdminPage = () => {
     }, {} as Record<string, Appointment[]>);
 
 
+    if (loading) {
+        return (
+            <div className="bg-brand-gray min-h-full flex items-center justify-center">
+                <div className="text-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-blue mx-auto"></div>
+                    <p className="mt-4 text-gray-600">Loading appointments...</p>
+                </div>
+            </div>
+        );
+    }
+
+    if (error) {
+        return (
+            <div className="bg-brand-gray min-h-full flex items-center justify-center">
+                <div className="text-center">
+                    <p className="text-red-600 mb-4">{error}</p>
+                    <button
+                        onClick={() => window.location.reload()}
+                        className="bg-brand-blue text-white px-6 py-2 rounded-md hover:bg-brand-blue-dark transition"
+                    >
+                        Retry
+                    </button>
+                </div>
+            </div>
+        );
+    }
+
     return (
         <div className="bg-brand-gray min-h-full">
             <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-12">
@@ -133,7 +184,7 @@ const AdminPage = () => {
                         </button>
                     </div>
                 </div>
-                
+
                 <div className="space-y-8">
                     {Object.keys(groupedAppointments).map(dateKey => (
                         <div key={dateKey}>

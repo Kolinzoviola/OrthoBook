@@ -1,0 +1,62 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Appointment {
+  id              String   @id @default(uuid())
+
+  // Visit Information
+  visitType       String   // "InPerson" or "Video"
+  visitDuration   Int      // Duration in minutes
+
+  // Scheduling
+  date            String   // ISO date string
+  time            String   // Time string (e.g., "9:00 AM")
+
+  // Patient Details
+  firstName       String
+  lastName        String
+  email           String
+  phone           String
+
+  // Clinical Information
+  reasonForVisit  String
+  injuryDate      String?  // Optional injury date
+  painScale       Int?     // Pain scale 1-10
+  additionalNotes String?
+
+  // File Uploads (stored as JSON array of file names/paths)
+  files           String?  // JSON stringified array
+
+  // Status and Metadata
+  status          String   @default("Scheduled") // "Scheduled", "Completed", "Cancelled"
+
+  // Reminder Tracking
+  reminder24hSent Boolean  @default(false)
+  reminder2hSent  Boolean  @default(false)
+
+  // Timestamps
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([email])
+  @@index([date])
+  @@index([status])
+}
+
+model VisitType {
+  id          String  @id
+  name        String
+  duration    Int     // Duration in minutes
+  description String
+
+  @@unique([name])
+}
