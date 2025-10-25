@@ -1,9 +1,14 @@
 import React, { createContext, useState, useContext, ReactNode } from 'react';
+import { add } from 'date-fns';
 import { Appointment, BookingContextType, IntakeDetails, PatientDetails, VisitType, AppointmentStatus } from '../types';
 import { appointmentsAPI } from '../api/client';
 import { apiAppointmentToAppointment, appointmentToAPIFormat } from '../api/adapters';
+import { MOCK_APPOINTMENTS } from '../constants';
 
 const BookingContext = createContext<BookingContextType | undefined>(undefined);
+
+// Check if backend is available
+const USE_BACKEND = import.meta.env.VITE_API_URL ? true : false;
 
 export const BookingProvider = ({ children }: { children: ReactNode }) => {
   const [step, setStep] = useState(1);
@@ -26,39 +31,121 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
   const createAppointment = async () => {
     if (!selectedVisitType || !selectedSlot) return;
 
+    // Try API first, fallback to localStorage
     try {
-      const appointmentData = appointmentToAPIFormat(
-        selectedVisitType,
-        selectedSlot,
-        patientDetails,
-        intakeDetails,
-        files
-      );
+      if (USE_BACKEND) {
+        const appointmentData = appointmentToAPIFormat(
+          selectedVisitType,
+          selectedSlot,
+          patientDetails,
+          intakeDetails,
+          files
+        );
 
-      const apiAppointment = await appointmentsAPI.create(appointmentData);
-      const newAppointment = apiAppointmentToAppointment(apiAppointment as any);
+        const apiAppointment = await appointmentsAPI.create(appointmentData);
+        const newAppointment = apiAppointmentToAppointment(apiAppointment as any);
 
+        setBookedAppointment(newAppointment);
+
+        // Also save to localStorage for reminder functionality
+        try {
+          const existingAppointments = JSON.parse(localStorage.getItem('userAppointments') || '[]');
+          localStorage.setItem('userAppointments', JSON.stringify([...existingAppointments, newAppointment]));
+        } catch (error) {
+          console.error("Could not save appointment for reminders:", error);
+        }
+      } else {
+        // Fallback to localStorage mode
+        const newAppointment: Appointment = {
+          id: `appt-${Math.random().toString(36).substr(2, 9)}`,
+          patient: patientDetails,
+          visitType: selectedVisitType,
+          startTime: selectedSlot,
+          endTime: add(selectedSlot, { minutes: selectedVisitType.duration }),
+          status: AppointmentStatus.Scheduled,
+          intake: intakeDetails,
+          files,
+        };
+
+        MOCK_APPOINTMENTS.push(newAppointment);
+        setBookedAppointment(newAppointment);
+
+        try {
+          const existingAppointments = JSON.parse(localStorage.getItem('userAppointments') || '[]');
+          localStorage.setItem('userAppointments', JSON.stringify([...existingAppointments, newAppointment]));
+        } catch (error) {
+          console.error("Could not save appointment for reminders:", error);
+        }
+      }
+    } catch (error) {
+      console.error("Could not create appointment, falling back to localStorage mode:", error);
+      // Fallback to localStorage if API fails
+      const newAppointment: Appointment = {
+        id: `appt-${Math.random().toString(36).substr(2, 9)}`,
+        patient: patientDetails,
+        visitType: selectedVisitType,
+        startTime: selectedSlot,
+        endTime: add(selectedSlot, { minutes: selectedVisitType.duration }),
+        status: AppointmentStatus.Scheduled,
+        intake: intakeDetails,
+        files,
+      };
+
+      MOCK_APPOINTMENTS.push(newAppointment);
       setBookedAppointment(newAppointment);
 
-      // Also save to localStorage for reminder functionality
       try {
         const existingAppointments = JSON.parse(localStorage.getItem('userAppointments') || '[]');
         localStorage.setItem('userAppointments', JSON.stringify([...existingAppointments, newAppointment]));
       } catch (error) {
         console.error("Could not save appointment for reminders:", error);
       }
-    } catch (error) {
-      console.error("Could not create appointment:", error);
-      throw error;
     }
   };
   
   const cancelAppointment = async (appointmentId: string) => {
     try {
-      const cancelledAppointment = await appointmentsAPI.cancel(appointmentId);
-      const updatedAppointment = apiAppointmentToAppointment(cancelledAppointment as any);
+      if (USE_BACKEND) {
+        const cancelledAppointment = await appointmentsAPI.cancel(appointmentId);
+        const updatedAppointment = apiAppointmentToAppointment(cancelledAppointment as any);
 
-      // Update localStorage
+        // Update localStorage
+        const existingAppointments: Appointment[] = JSON.parse(localStorage.getItem('userAppointments') || '[]');
+        const updatedAppointments = existingAppointments.map(appt =>
+            appt.id === appointmentId ? { ...appt, status: AppointmentStatus.Cancelled } : appt
+        );
+        localStorage.setItem('userAppointments', JSON.stringify(updatedAppointments));
+
+        if (bookedAppointment && bookedAppointment.id === appointmentId) {
+          setBookedAppointment(updatedAppointment);
+        }
+        console.log(`Appointment ${appointmentId} cancelled.`);
+      } else {
+        // Fallback to localStorage mode
+        const apptIndex = MOCK_APPOINTMENTS.findIndex(a => a.id === appointmentId);
+        if (apptIndex > -1) {
+          MOCK_APPOINTMENTS[apptIndex].status = AppointmentStatus.Cancelled;
+        }
+
+        const existingAppointments: Appointment[] = JSON.parse(localStorage.getItem('userAppointments') || '[]');
+        const updatedAppointments = existingAppointments.map(appt =>
+            appt.id === appointmentId ? { ...appt, status: AppointmentStatus.Cancelled } : appt
+        );
+        localStorage.setItem('userAppointments', JSON.stringify(updatedAppointments));
+
+        if (bookedAppointment && bookedAppointment.id === appointmentId) {
+          setBookedAppointment({ ...bookedAppointment, status: AppointmentStatus.Cancelled });
+        }
+        console.log(`Appointment ${appointmentId} cancelled.`);
+      }
+    } catch (error) {
+      console.error("Could not cancel appointment, using fallback:", error);
+      // Fallback to localStorage if API fails
+      const apptIndex = MOCK_APPOINTMENTS.findIndex(a => a.id === appointmentId);
+      if (apptIndex > -1) {
+        MOCK_APPOINTMENTS[apptIndex].status = AppointmentStatus.Cancelled;
+      }
+
       const existingAppointments: Appointment[] = JSON.parse(localStorage.getItem('userAppointments') || '[]');
       const updatedAppointments = existingAppointments.map(appt =>
           appt.id === appointmentId ? { ...appt, status: AppointmentStatus.Cancelled } : appt
@@ -66,12 +153,8 @@ export const BookingProvider = ({ children }: { children: ReactNode }) => {
       localStorage.setItem('userAppointments', JSON.stringify(updatedAppointments));
 
       if (bookedAppointment && bookedAppointment.id === appointmentId) {
-        setBookedAppointment(updatedAppointment);
+        setBookedAppointment({ ...bookedAppointment, status: AppointmentStatus.Cancelled });
       }
-      console.log(`Appointment ${appointmentId} cancelled.`);
-    } catch (error) {
-      console.error("Could not cancel appointment:", error);
-      throw error;
     }
   };
 

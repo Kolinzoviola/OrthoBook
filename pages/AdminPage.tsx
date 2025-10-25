@@ -5,23 +5,38 @@ import { Appointment, VisitTypeEnum, AppointmentStatus } from '../types';
 import { VideoCameraIcon, DownloadIcon } from '../components/icons';
 import { appointmentsAPI } from '../api/client';
 import { apiAppointmentToAppointment } from '../api/adapters';
+import { MOCK_APPOINTMENTS } from '../constants';
+
+// Check if backend is available
+const USE_BACKEND = import.meta.env.VITE_API_URL ? true : false;
 
 const AdminPage = () => {
     const [appointments, setAppointments] = useState<Appointment[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
+    const [usingFallback, setUsingFallback] = useState(false);
 
     useEffect(() => {
         const fetchAppointments = async () => {
             try {
                 setLoading(true);
-                const apiAppointments = await appointmentsAPI.getAll();
-                const convertedAppointments = apiAppointments.map(appt => apiAppointmentToAppointment(appt as any));
-                setAppointments(convertedAppointments);
+                if (USE_BACKEND) {
+                    const apiAppointments = await appointmentsAPI.getAll();
+                    const convertedAppointments = apiAppointments.map(appt => apiAppointmentToAppointment(appt as any));
+                    setAppointments(convertedAppointments);
+                    setUsingFallback(false);
+                } else {
+                    // Fallback to mock data
+                    setAppointments(MOCK_APPOINTMENTS);
+                    setUsingFallback(true);
+                }
                 setError(null);
             } catch (err) {
-                console.error('Failed to fetch appointments:', err);
-                setError('Failed to load appointments. Please try again later.');
+                console.error('Failed to fetch appointments, using fallback data:', err);
+                // Fallback to mock data if API fails
+                setAppointments(MOCK_APPOINTMENTS);
+                setUsingFallback(true);
+                setError(null); // Clear error since we're using fallback
             } finally {
                 setLoading(false);
             }
@@ -184,6 +199,14 @@ const AdminPage = () => {
                         </button>
                     </div>
                 </div>
+
+                {usingFallback && (
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-md p-4 mb-6">
+                        <p className="text-yellow-800 text-sm">
+                            <strong>Demo Mode:</strong> Backend API is not connected. Using sample data for demonstration purposes.
+                        </p>
+                    </div>
+                )}
 
                 <div className="space-y-8">
                     {Object.keys(groupedAppointments).map(dateKey => (
